@@ -8,6 +8,7 @@ using VRage.Game.Components;
 using ModNetworkAPI;
 using VRage.Game.ModAPI;
 using SpaceEngineers.Game.ModAPI;
+using VRageMath;
 
 namespace ResourceBaseBlock
 {
@@ -179,8 +180,10 @@ namespace ResourceBaseBlock
             StringBuilder response = new StringBuilder();
             foreach (ResourceBeacon b in RegisteredBeacons.Values)
             {
-                response.AppendLine($"{b.Name} |---| {b.ModBlock.CubeGrid.CustomName}                                                                                    fasfsfkjsdklfsdjfsdfslk;dfjsldkfjsdlkfjkl");
-                response.AppendLine($"Location: GPS:{b.Name}:{b.ModBlock.Position.X}:{b.ModBlock.Position.Y}:{b.ModBlock.Position.Z}:");
+                response.AppendLine($"{b.Name} |---| {b.ModBlock.CubeGrid.CustomName}");
+
+                Vector3D position = b.ModBlock.CubeGrid.GridIntegerToWorld(b.ModBlock.Position);
+                response.AppendLine($"Location: GPS:{b.Name}:{position.X.ToString("n3")}:{position.Y.ToString("n3")}:{position.Z.ToString("n3")}:");
                 response.AppendLine($"State: {b.State}{(b.State == BaseState.Spawn ? $" {b.ActiveResource.Amount} {b.ActiveResource.AlternateNames[0]}" : "")}");
                 if (b.State != BaseState.Ready)
                 {
