@@ -39,11 +39,9 @@ namespace ResourceBaseBlock
 
         public long TimeRemaining { get; private set; }
 
-        //public Dictionary<ulong, SpawnHistory> ResourcesByPlayer = new Dictionary<ulong, SpawnHistory>();
-
         public override void Init(MyObjectBuilder_EntityBase objectBuilder)
         {
-            if (!MyAPIGateway.Session.IsServer) return;
+            if (MyAPIGateway.Utilities.IsDedicated) return;
 
             ModBlock = Entity as IMyBeacon;
             ModBlock.Radius = 99999999f;
@@ -59,9 +57,16 @@ namespace ResourceBaseBlock
 
         public override void Close()
         {
-            Core.OnUpdateInterval -= OnDisplayUpdateInterval;
-            Core.UnRegisterResourceBeacon(this);
-            base.Close();
+            try
+            {
+                Core.OnUpdateInterval -= OnDisplayUpdateInterval;
+                Core.UnRegisterResourceBeacon(this);
+                base.Close();
+            }
+            catch (Exception e)
+            {
+                MyLog.Default.Error(e.ToString());
+            }
         }
 
         public static void InitializeActions()
@@ -81,7 +86,7 @@ namespace ResourceBaseBlock
                 IMyTerminalAction action = MyAPIGateway.TerminalControls.CreateAction<IMyBeacon>(actionName);
                 action.Name.Append(actionName);
                 action.Writer = (b, str) => str.Append($"{r.PrimaryName}");
-                action.Enabled = (block) => { return block.GameLogic is ResourceBeacon; };
+                action.Enabled = (block) => { return block.GameLogic.GetAs<ResourceBeacon>() != null; };
                 action.Action = (b) => { };
 
                 MyAPIGateway.TerminalControls.AddAction<IMyBeacon>(action);
@@ -138,42 +143,6 @@ namespace ResourceBaseBlock
             }
 
             State = BaseState.Spawn;
-
-            //if (player != null)
-            //{
-            //    IMyFaction faction = MyAPIGateway.Session.Factions.TryGetPlayerFaction(player.IdentityId);
-            //    if (!ResourcesByPlayer.ContainsKey(steamId))
-            //    {
-            //        ResourcesByPlayer.Add(steamId, new SpawnHistory() {
-            //            SteamId = steamId,
-            //            SpawnCount = 0
-            //        });
-            //    }
-
-            //    SpawnHistory info = ResourcesByPlayer[steamId];
-            //    info.Name = player.DisplayName;
-            //    info.FactionId = (faction == null) ? 0 : faction.FactionId;
-            //    info.FactionTag = faction?.Tag;
-            //    info.FactionName = faction?.Name;
-            //    info.SpawnCount++;
-
-            //    int index = info.Resources.FindIndex((r) => r.TypeId == ActiveResource.TypeId && r.SubtypeName == ActiveResource.SubtypeName);
-
-            //    if (index == -1)
-            //    {
-            //        info.Resources.Add(new SpawnHistoryResourceQuantity() {
-            //            TypeId = ActiveResource.TypeId,
-            //            SubtypeName = ActiveResource.SubtypeName,
-            //            Amount = ActiveResource.Amount
-            //        });
-            //    }
-            //    else
-            //    {
-            //        info.Resources[index].Amount += ActiveResource.Amount;
-            //    }
-
-            //    ResourcesByPlayer[steamId] = info;
-            //}
 
             Core.Network.SendCommand("messages", $"Spawning {ActiveResource.SubtypeName} {ActiveResource.Amount} {ActiveResource.TypeId} at \"{Name}\" in {GetTimeRemainingFormatted()}");
         }
@@ -248,18 +217,8 @@ namespace ResourceBaseBlock
 
         public ResourceBeaconStorage GetBaseInfo()
         {
-            //List<SpawnHistory> histories = new List<SpawnHistory>();
-
-            //foreach (SpawnHistory h in ResourcesByPlayer.Values)
-            //{
-            //    histories.Add(h);
-            //}
-
             return new ResourceBeaconStorage
             {
-                //GridName = ModBlock.CubeGrid.DisplayName,
-                //Name = this.Name,
-                //SpawnHistories = histories,
                 ActiveResource = ActiveResource,
                 State = State,
                 TimeRemaining = TimeRemaining
@@ -305,14 +264,6 @@ namespace ResourceBaseBlock
                 ActiveResource = data.ActiveResource;
                 TimeRemaining = data.TimeRemaining;
                 State = data.State;
-
-                //foreach (SpawnHistory h in data.SpawnHistories)
-                //{
-                //    if (!ResourcesByPlayer.ContainsKey(h.SteamId))
-                //    {
-                //        ResourcesByPlayer.Add(h.SteamId, h);
-                //    }
-                //}
             }
             else
             {

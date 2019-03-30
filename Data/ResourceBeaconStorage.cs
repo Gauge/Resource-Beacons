@@ -13,14 +13,5 @@ namespace ResourceBaseBlock.Data
 
         [ProtoMember]
         public long TimeRemaining;
-
-        //[ProtoMember]
-        //public string GridName;
-
-        //[ProtoMember]
-        //public string Name;
-
-        //[ProtoMember]
-        //public List<SpawnHistory> SpawnHistories = new List<SpawnHistory>();
     }
 }
