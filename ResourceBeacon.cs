@@ -23,8 +23,6 @@ namespace ResourceBaseBlock
     {
         public readonly static Guid StorageGuid = new Guid("B7AF750E-68E3-4826-BD0E-A75BF36BA5E6");
 
-        private static bool ControlsInitialized = false;
-
         private bool FirstTimeLoad = false;
 
         public IMyBeacon ModBlock { get; private set; }
@@ -41,32 +39,17 @@ namespace ResourceBaseBlock
 
         public override void Init(MyObjectBuilder_EntityBase objectBuilder)
         {
-            if (MyAPIGateway.Utilities.IsDedicated) return;
-
             ModBlock = Entity as IMyBeacon;
             ModBlock.Radius = 99999999f;
-            Core.OnUpdateInterval += OnDisplayUpdateInterval;
+            Core.OnUpdateInterval += UpdateDisplay;
             Core.RegisterResourceBeacon(this);
-
-            if (!ControlsInitialized)
-            {
-                InitializeActions();
-                ControlsInitialized = true;
-            }
         }
 
         public override void Close()
         {
-            try
-            {
-                Core.OnUpdateInterval -= OnDisplayUpdateInterval;
-                Core.UnRegisterResourceBeacon(this);
-                base.Close();
-            }
-            catch (Exception e)
-            {
-                MyLog.Default.Error(e.ToString());
-            }
+            Core.OnUpdateInterval -= UpdateDisplay;
+            Core.UnRegisterResourceBeacon(this);
+            base.Close();
         }
 
         public static void InitializeActions()
@@ -85,34 +68,49 @@ namespace ResourceBaseBlock
 
                 IMyTerminalAction action = MyAPIGateway.TerminalControls.CreateAction<IMyBeacon>(actionName);
                 action.Name.Append(actionName);
-                action.Writer = (b, str) => str.Append($"{r.PrimaryName}");
+                action.Writer = (block, str) => str.Append($"{r.PrimaryName}");
                 action.Enabled = (block) => { return block.GameLogic.GetAs<ResourceBeacon>() != null; };
-                action.Action = (b) => { };
+                action.Action = (block) =>
+                {
+                    if (MyAPIGateway.Session.IsServer)
+                    {
+                        Core.Activate(block.EntityId, actionName);
+                    }
+                    else
+                    {
+                        Core.Network.SendCommand("activate", data: MyAPIGateway.Utilities.SerializeToBinary(new ActivateData() { BlockId = block.EntityId, ActionId = actionName }));
+                    }
+                };
 
                 MyAPIGateway.TerminalControls.AddAction<IMyBeacon>(action);
             }
         }
 
-        public void Activate(string action, ulong steamId)
+        public void Activate(string action)
         {
-            if (State == BaseState.Ready && ModBlock.IsWorking)
+            try
             {
-                foreach (Resource r in Core.Config.Resources)
+                if (State == BaseState.Ready && ModBlock.IsWorking)
                 {
-                    string actionName = $"Spawn {r.PrimaryName}";
-                    if (actionName == action)
+                    foreach (Resource r in Core.Config.Resources)
                     {
-                        Activate(r, steamId);
-                        break;
+                        string actionName = $"Spawn {r.PrimaryName}";
+                        if (actionName == action)
+                        {
+                            Activate(r);
+                            break;
+                        }
                     }
                 }
             }
+            catch (Exception e)
+            {
+                MyLog.Default.Error(e.ToString());
+            }
         }
 
-        public void Activate(Resource resource, ulong steamId)
+        public void Activate(Resource resource)
         {
-            MyLog.Default.Info($"{resource.Amount}");
-
             TimeRemaining = Resource.ConvertSecondsToTicks(resource.SpawnTime);
             ActiveResource = new Resource()
             {
@@ -124,33 +122,27 @@ namespace ResourceBaseBlock
                 SubtypeName = resource.SubtypeName
             };
 
-            IMyPlayer player = null;
-            List<IMyPlayer> userGetter = new List<IMyPlayer>();
-            MyAPIGateway.Players.GetPlayers(userGetter, (p) => p.SteamUserId == steamId);
 
-            if (userGetter.Count != 0)
-            {
-                player = userGetter[0];
-            }
-
-            if (Core.Config.EnemyActivityBonus && player != null)
+            float multiplier = 1;
+            if (Core.Config.PlayerActivityBonus)
             {
                 List<IMyPlayer> players = new List<IMyPlayer>();
-                players.Add(player);
-                MyAPIGateway.Players.GetPlayers(players, (p) => player.GetRelationTo(p.IdentityId) == MyRelationsBetweenPlayerAndBlock.Enemies);
+                MyAPIGateway.Players.GetPlayers(players);
 
-                ActiveResource.Amount = (int)((float)ActiveResource.Amount * (Core.Config.EnemyActivityMultiplier * (float)players.Count));
+                multiplier = 1 + (Core.Config.PlayerActivityMultiplier * ((float)players.Count-1));
+                ActiveResource.Amount = (int)((float)ActiveResource.Amount * multiplier);
             }
 
             State = BaseState.Spawn;
 
-            Core.Network.SendCommand("messages", $"Spawning {ActiveResource.SubtypeName} {ActiveResource.Amount} {ActiveResource.TypeId} at \"{Name}\" in {GetTimeRemainingFormatted()}");
+            string message = $"Spawning {ActiveResource.SubtypeName} {ActiveResource.Amount} {((multiplier > 1f) ? $"({multiplier.ToString("p0")})" : "")} {ActiveResource.TypeId} at \"{Name}\" in {GetTimeRemainingFormatted()}";
+
+            Core.Network.SendCommand("messages", message);
+            MyAPIGateway.Utilities.SendModMessage(Tools.ModMessageId, message);
         }
 
-        public void OnDisplayUpdateInterval()
+        public void UpdateDisplay()
         {
-            if (Core.Config == null) return;
-
             if (!FirstTimeLoad)
             {
                 Load();
@@ -192,6 +184,14 @@ namespace ResourceBaseBlock
 
         private string SpawnResources(Resource resource)
         {
+            //try
+            //{
+
+            //}
+            //catch (Exception e)
+            //{
+            //    MyLog.Default.Error(e.ToString());
+            //}
             MyObjectBuilder_PhysicalObject ObjectBuilder = resource.GetFloatingObject();
             MyInventory inventory = (MyInventory)ModBlock.GetInventory();
             MyFixedPoint size = inventory.ComputeAmountThatFits(ObjectBuilder.GetId());

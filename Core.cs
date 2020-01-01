@@ -23,8 +23,6 @@ namespace ResourceBaseBlock
 
         private static Dictionary<long, ResourceBeacon> RegisteredBeacons = new Dictionary<long, ResourceBeacon>();
 
-        private static Dictionary<long, List<ClientButtonPanel>> RegisteredGridPanels = new Dictionary<long, List<ClientButtonPanel>>();
-
         private int interval = 0;
 
         private enum Operations {none, status, help, load }
@@ -42,16 +40,20 @@ namespace ResourceBaseBlock
             if (Network.NetworkType == NetworkTypes.Client)
             {
                 Network.RegisterChatCommand("status", (text) => { Network.SendCommand("status"); });
-                Network.RegisterNetworkCommand("status", Status_ServerCall);
-
                 Network.RegisterChatCommand("load", (text) => { Network.SendCommand("load"); });
-                Network.RegisterNetworkCommand("load", (id, cmd, data) => { });
+
+
+                Network.RegisterNetworkCommand("status", Status_ServerCallback);
+
+                Network.RegisterNetworkCommand("load", Load_ServerCallback);
+
                 Network.RegisterNetworkCommand("messages", (id, cmd, data) => { });
             }
             else
             {
-                Network.RegisterNetworkCommand("status", Status_ClientCall);
-                Network.RegisterNetworkCommand("load", Load_ClientCall);
+                Network.RegisterNetworkCommand("status", Status_ClientCallback);
+                Network.RegisterNetworkCommand("load", Load_ClientCallback);
+                Network.RegisterNetworkCommand("load_request", LoadRequest_ClientCallback);
                 Network.RegisterNetworkCommand("activate", Activate_ClientCall);
 
                 Network.RegisterChatCommand("status", (text) =>
@@ -68,17 +70,35 @@ namespace ResourceBaseBlock
                 });
             }
 
-            if (Network.NetworkType != NetworkTypes.Client)
+            if (MyAPIGateway.Session.IsServer)
             {
                 Config = Settings.Load();
-            } 
+                if (!MyAPIGateway.Utilities.IsDedicated) {
+                    ResourceBeacon.InitializeActions();
+                }
+            }
         }
 
+        int waitInterval = 0;
         public override void UpdateBeforeSimulation()
         {
-            if (Network.NetworkType == NetworkTypes.Client) return;
+            if (Network.NetworkType == NetworkTypes.Client)
+            {
+                // make sure the client has what it needs to setup resource bases panels
+                if (Config == null || Config.Resources.Count == 0)
+                {
+                    if (waitInterval == 60)
+                    {
+                        Network.SendCommand("load_request");
+                    }
 
-            if (interval == Config.UpdateInterval)
+                    waitInterval++;
+                }
+
+                return;
+            }
+
+            if (interval >= Config.UpdateInterval)
             {
                 OnUpdateInterval.Invoke();
                 interval = 0;
@@ -87,14 +107,14 @@ namespace ResourceBaseBlock
             interval++;
         }
 
+        public static void Activate(long blockId, string actionId)
+        {
+            RegisteredBeacons[blockId].Activate(actionId);
+        }
+
         public static void RegisterResourceBeacon(ResourceBeacon rbase)
         {
             RegisteredBeacons.Add(rbase.ModBlock.EntityId, rbase);
-
-            if (Network.NetworkType != NetworkTypes.Dedicated)
-            {
-                RegisterGrid(rbase.ModBlock.CubeGrid);
-            }
         }
 
         public static void UnRegisterResourceBeacon(ResourceBeacon rbase)
@@ -103,72 +123,7 @@ namespace ResourceBaseBlock
             {
                 RegisteredBeacons.Remove(rbase.ModBlock.EntityId);
             }
-
-            if (Network.NetworkType != NetworkTypes.Dedicated)
-            {
-                UnRegisterGrid(rbase.ModBlock.CubeGrid);
-            }
         }
-
-        private static void RegisterGrid(IMyCubeGrid grid)
-        {
-            if (!RegisteredGridPanels.ContainsKey(grid.EntityId))
-            {
-                List<ClientButtonPanel> panels = new List<ClientButtonPanel>();
-
-                List<IMySlimBlock> blocks = new List<IMySlimBlock>();
-                grid.GetBlocks(blocks, b => b.FatBlock is IMyButtonPanel);
-
-                foreach (IMySlimBlock block in blocks)
-                {
-                    ClientButtonPanel panel = new ClientButtonPanel(block.FatBlock as IMyButtonPanel);
-                    panel.ButtonPressed += ButtonPressed;
-
-                    panels.Add(panel);
-                }
-
-                grid.OnBlockAdded += (block) => {
-                    if (block.FatBlock is IMyButtonPanel)
-                    {
-                        ClientButtonPanel panel = new ClientButtonPanel(block.FatBlock as IMyButtonPanel);
-                        panel.ButtonPressed += ButtonPressed;
-
-                        RegisteredGridPanels[block.CubeGrid.EntityId].Add(panel);
-                    }
-                };
-
-                RegisteredGridPanels.Add(grid.EntityId, panels);
-            }
-        }
-
-        private static void UnRegisterGrid(IMyCubeGrid grid)
-        {
-            if (RegisteredGridPanels.ContainsKey(grid.EntityId))
-            {
-                foreach (ClientButtonPanel panel in RegisteredGridPanels[grid.EntityId])
-                {
-                    panel.ButtonPressed -= ButtonPressed;
-                }
-
-                RegisteredGridPanels.Remove(grid.EntityId);
-            }
-        }
-
-        private static void ButtonPressed(long gridId, long blockId, int index, string actionId)
-        {
-            if (RegisteredBeacons.ContainsKey(blockId))
-            {
-                ulong steamId = MyAPIGateway.Session.Player.SteamUserId;
-                if (Network.NetworkType == NetworkTypes.Server)
-                {
-                    RegisteredBeacons[blockId].Activate(actionId, steamId);
-                }
-                else if (Network.NetworkType == NetworkTypes.Client)
-                {
-                    Network.SendCommand("activate", data: MyAPIGateway.Utilities.SerializeToBinary(new ActivateData() { BlockId = blockId, ActionId = actionId }));
-                }
-            }
-        } 
 
         protected override void UnloadData()
         {
@@ -207,30 +162,41 @@ namespace ResourceBaseBlock
             MyAPIGateway.Utilities.ShowMessage(Network.ModName, response.ToString());
         }
 
-        public void Status_ServerCall(ulong steamId, string command, byte[] data)
+        public void Status_ServerCallback(ulong steamId, string command, byte[] data)
         {
             MyAPIGateway.Utilities.ShowMissionScreen(Tools.ModName, "", "", MyAPIGateway.Utilities.SerializeFromBinary<string>(data));
         }
 
-        public void Status_ClientCall(ulong steamId, string command, byte[] data)
+        public void Status_ClientCallback(ulong steamId, string command, byte[] data)
         {
 
             Network.SendCommand("status", data: MyAPIGateway.Utilities.SerializeToBinary(BasicStatus()), steamId: steamId);
         }
 
-        public void Load_ClientCall(ulong steamId, string command, byte[] data)
+        public void Load_ClientCallback(ulong steamId, string command, byte[] data)
         {
             Config = Settings.Load();
             ResourceBeacon.InitializeActions();
 
-            Network.SendCommand("load", message: "Config loaded", steamId: steamId);
+            Network.SendCommand("load", message: "Config loaded", data: MyAPIGateway.Utilities.SerializeToBinary(Config));
+        }
+
+        public void LoadRequest_ClientCallback(ulong steamId, string command, byte[] data)
+        {
+            Network.SendCommand("load", data: MyAPIGateway.Utilities.SerializeToBinary(Config), steamId: steamId);
+        }
+
+        public void Load_ServerCallback(ulong steamId, string command, byte[] data)
+        {
+            Config = MyAPIGateway.Utilities.SerializeFromBinary<Settings>(data);
+            ResourceBeacon.InitializeActions();
         }
 
         public void Activate_ClientCall(ulong steamId, string command, byte[] data)
         {
             ActivateData activateData = MyAPIGateway.Utilities.SerializeFromBinary<ActivateData>(data);
 
-            RegisteredBeacons[activateData.BlockId].Activate(activateData.ActionId, steamId);
+            Activate(activateData.BlockId, activateData.ActionId);
         }
     }
 }

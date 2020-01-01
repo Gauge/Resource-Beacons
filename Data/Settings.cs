@@ -22,6 +22,12 @@ namespace ResourceBaseBlock.Data
         public float EnemyActivityMultiplier { get; set; }
 
         [ProtoMember]
+        public bool PlayerActivityBonus { get; set; }
+
+        [ProtoMember]
+        public float PlayerActivityMultiplier { get; set; }
+
+        [ProtoMember]
         public List<Resource> Resources = new List<Resource>();
 
         public static Settings Default()
@@ -29,8 +35,10 @@ namespace ResourceBaseBlock.Data
             return new Settings()
             {
                 UpdateInterval = 60,
-                EnemyActivityBonus = true,
+                EnemyActivityBonus = false,
                 EnemyActivityMultiplier = 1f,
+                PlayerActivityBonus = true,
+                PlayerActivityMultiplier = 1f,
             };
         }
 
