@@ -12,22 +12,22 @@ namespace ResourceBaseBlock.Data
     {
         public const string Filename = "ResourceBaseSettings.cfg";
 
-        [ProtoMember]
+        [ProtoMember(1)]
         public int UpdateInterval { get; set; }
 
-        [ProtoMember]
+        [ProtoMember(2)]
         public bool EnemyActivityBonus { get; set; }
 
-        [ProtoMember]
+        [ProtoMember(3)]
         public float EnemyActivityMultiplier { get; set; }
 
-        [ProtoMember]
+        [ProtoMember(4)]
         public bool PlayerActivityBonus { get; set; }
 
-        [ProtoMember]
+        [ProtoMember(5)]
         public float PlayerActivityMultiplier { get; set; }
 
-        [ProtoMember]
+        [ProtoMember(6)]
         public List<Resource> Resources = new List<Resource>();
 
         public static Settings Default()
@@ -35,9 +35,9 @@ namespace ResourceBaseBlock.Data
             return new Settings()
             {
                 UpdateInterval = 60,
-                EnemyActivityBonus = false,
+                EnemyActivityBonus = true,
                 EnemyActivityMultiplier = 1f,
-                PlayerActivityBonus = true,
+                PlayerActivityBonus = false,
                 PlayerActivityMultiplier = 1f,
             };
         }

@@ -5,30 +5,27 @@ using System.Collections.Generic;
 using System.Text;
 using VRage.Game;
 using VRage.Game.Components;
-using ModNetworkAPI;
-using VRage.Game.ModAPI;
-using SpaceEngineers.Game.ModAPI;
 using VRageMath;
+using SENetworkAPI;
+using VRage.Game.ModAPI;
+using Sandbox.Game;
 
 namespace ResourceBaseBlock
 {
-    [MySessionComponentDescriptor(MyUpdateOrder.BeforeSimulation)]
+    [MySessionComponentDescriptor(MyUpdateOrder.AfterSimulation)]
     public class Core : MySessionComponentBase
     {
         public static Settings Config { get; private set; }
-
         public static NetworkAPI Network => NetworkAPI.Instance;
 
-        public static event Action OnUpdateInterval = delegate { };
+        private static Dictionary<long, ResourceBaseNode> RegisteredBaseNodes = new Dictionary<long, ResourceBaseNode>();
 
-        private static Dictionary<long, ResourceBeacon> RegisteredBeacons = new Dictionary<long, ResourceBeacon>();
-
-        private int interval = 0;
-
-        private enum Operations {none, status, help, load }
+        private static Dictionary<long, IMyGps> gpsPoints = new Dictionary<long, IMyGps>();
 
         public override void Init(MyObjectBuilder_SessionComponent sessionComponent)
         {
+            NetworkAPI.LogNetworkTraffic = false;
+
             if (Network == null)
             {
                 NetworkAPI.Init(Tools.ModId, Tools.ModName, Tools.Keyword);
@@ -37,91 +34,64 @@ namespace ResourceBaseBlock
             Network.RegisterChatCommand(string.Empty, Chat_Help);
             Network.RegisterChatCommand("help", Chat_Help);
 
-            if (Network.NetworkType == NetworkTypes.Client)
+            if (MyAPIGateway.Session.IsServer)
             {
-                Network.RegisterChatCommand("status", (text) => { Network.SendCommand("status"); });
-                Network.RegisterChatCommand("load", (text) => { Network.SendCommand("load"); });
-
+                Config = Settings.Load();
+                ResourceBaseNode.InitializeActions();
 
                 Network.RegisterNetworkCommand("status", Status_ServerCallback);
-
                 Network.RegisterNetworkCommand("load", Load_ServerCallback);
-
-                Network.RegisterNetworkCommand("messages", (id, cmd, data) => { });
-            }
-            else
-            {
-                Network.RegisterNetworkCommand("status", Status_ClientCallback);
-                Network.RegisterNetworkCommand("load", Load_ClientCallback);
-                Network.RegisterNetworkCommand("load_request", LoadRequest_ClientCallback);
-                Network.RegisterNetworkCommand("activate", Activate_ClientCall);
-
+                Network.RegisterNetworkCommand("load_request", LoadRequest_ServerCallback);
                 Network.RegisterChatCommand("status", (text) =>
                 {
                     MyAPIGateway.Utilities.ShowMissionScreen("Resource Bases", "", "", BasicStatus());
                 });
+            }
+            else
+            {
+                Network.RegisterChatCommand("status", (text) => { Network.SendCommand("status"); });
+                Network.RegisterChatCommand("load", (text) => { Network.SendCommand("load"); });
 
-                Network.RegisterChatCommand("load", (text) =>
-                {
-                    Config = Settings.Load();
-                    ResourceBeacon.InitializeActions();
-
-                    MyAPIGateway.Utilities.ShowMessage(Network.ModName, "Config loaded");
-                });
+                Network.RegisterNetworkCommand("status", Status_ClientCallback);
+                Network.RegisterNetworkCommand("load", Load_ClientCallback);
+                Network.RegisterNetworkCommand("gps", GPS_ClientCallback);
             }
 
             if (MyAPIGateway.Session.IsServer)
             {
-                Config = Settings.Load();
-                if (!MyAPIGateway.Utilities.IsDedicated) {
-                    ResourceBeacon.InitializeActions();
-                }
+                SetUpdateOrder(MyUpdateOrder.NoUpdate);
             }
+
         }
 
         int waitInterval = 0;
-        public override void UpdateBeforeSimulation()
+        public override void UpdateAfterSimulation()
         {
-            if (Network.NetworkType == NetworkTypes.Client)
+            if (Config != null && Config.Resources.Count > 0)
             {
-                // make sure the client has what it needs to setup resource bases panels
-                if (Config == null || Config.Resources.Count == 0)
-                {
-                    if (waitInterval == 60)
-                    {
-                        Network.SendCommand("load_request");
-                    }
-
-                    waitInterval++;
-                }
-
                 return;
             }
 
-            if (interval >= Config.UpdateInterval)
+            // make sure the client has what it needs to setup resource bases panels
+            if (waitInterval == 120)
             {
-                OnUpdateInterval.Invoke();
-                interval = 0;
+                Network.SendCommand("load_request");
+                waitInterval = 0;
             }
 
-            interval++;
+            waitInterval++;
         }
 
-        public static void Activate(long blockId, string actionId)
+        public static void RegisterResourceBaseNode(ResourceBaseNode rbase)
         {
-            RegisteredBeacons[blockId].Activate(actionId);
+            RegisteredBaseNodes.Add(rbase.Entity.EntityId, rbase);
         }
 
-        public static void RegisterResourceBeacon(ResourceBeacon rbase)
+        public static void UnRegisterResourceBaseNode(ResourceBaseNode rbase)
         {
-            RegisteredBeacons.Add(rbase.ModBlock.EntityId, rbase);
-        }
-
-        public static void UnRegisterResourceBeacon(ResourceBeacon rbase)
-        {
-            if (RegisteredBeacons.ContainsKey(rbase.ModBlock.EntityId))
+            if (RegisteredBaseNodes.ContainsKey(rbase.Entity.EntityId))
             {
-                RegisteredBeacons.Remove(rbase.ModBlock.EntityId);
+                RegisteredBaseNodes.Remove(rbase.Entity.EntityId);
             }
         }
 
@@ -133,7 +103,7 @@ namespace ResourceBaseBlock
         public string BasicStatus()
         {
             StringBuilder response = new StringBuilder();
-            foreach (ResourceBeacon b in RegisteredBeacons.Values)
+            foreach (ResourceBaseNode b in RegisteredBaseNodes.Values)
             {
                 response.AppendLine($"{b.Name} |---| {b.ModBlock.CubeGrid.CustomName}");
 
@@ -146,57 +116,75 @@ namespace ResourceBaseBlock
                 }
                 response.AppendLine();
             }
+
             return response.ToString();
+        }
+
+
+        public static void UpdateGPSSignal(GPSSignal signal)
+        {
+            if (!gpsPoints.ContainsKey(signal.Id))
+            {
+                IMyGps gps = MyAPIGateway.Session.GPS.Create(signal.Id.ToString(), "", signal.Location, true);
+                MyVisualScriptLogicProvider.SetGPSColor(signal.Id.ToString(), Color.White);
+                gpsPoints.Add(signal.Id, gps);
+                MyAPIGateway.Session.GPS.AddLocalGps(gps);
+            }
+
+            if (signal.Remove)
+            {
+                MyAPIGateway.Session.GPS.RemoveLocalGps(gpsPoints[signal.Id]);
+                gpsPoints.Remove(signal.Id);
+            }
+            else
+            {
+                gpsPoints[signal.Id].Name = signal.Text;
+            }
         }
 
         public void Chat_Help(string text)
         {
             StringBuilder response = new StringBuilder();
             response.Append($"Command: \"{Tools.Keyword}\"\nExtentions:\n");
-            response.Append("help: Displays this message\n");
             response.Append("status: Displays resource base details\n");
-            response.Append("load: Loads new resources from config\n");
-            response.Append("save: Saves current resources to world file\n");
-            response.Append("global: Loads global resources\n");
+            response.Append("load: requests resource data from server again\n");
 
             MyAPIGateway.Utilities.ShowMessage(Network.ModName, response.ToString());
         }
 
-        public void Status_ServerCallback(ulong steamId, string command, byte[] data)
+        public void Status_ServerCallback(ulong steamId, string command, byte[] data, DateTime timestamp)
+        {
+            Network.SendCommand("status", data: MyAPIGateway.Utilities.SerializeToBinary(BasicStatus()), steamId: steamId);
+        }
+
+        public void Status_ClientCallback(ulong steamId, string command, byte[] data, DateTime timestamp)
         {
             MyAPIGateway.Utilities.ShowMissionScreen(Tools.ModName, "", "", MyAPIGateway.Utilities.SerializeFromBinary<string>(data));
         }
 
-        public void Status_ClientCallback(ulong steamId, string command, byte[] data)
-        {
-
-            Network.SendCommand("status", data: MyAPIGateway.Utilities.SerializeToBinary(BasicStatus()), steamId: steamId);
-        }
-
-        public void Load_ClientCallback(ulong steamId, string command, byte[] data)
-        {
-            Config = Settings.Load();
-            ResourceBeacon.InitializeActions();
-
-            Network.SendCommand("load", message: "Config loaded", data: MyAPIGateway.Utilities.SerializeToBinary(Config));
-        }
-
-        public void LoadRequest_ClientCallback(ulong steamId, string command, byte[] data)
+        public void LoadRequest_ServerCallback(ulong steamId, string command, byte[] data, DateTime timestamp)
         {
             Network.SendCommand("load", data: MyAPIGateway.Utilities.SerializeToBinary(Config), steamId: steamId);
         }
 
-        public void Load_ServerCallback(ulong steamId, string command, byte[] data)
+        public void Load_ServerCallback(ulong steamId, string command, byte[] data, DateTime timestamp)
         {
-            Config = MyAPIGateway.Utilities.SerializeFromBinary<Settings>(data);
-            ResourceBeacon.InitializeActions();
+            Config = Settings.Load();
+            ResourceBaseNode.InitializeActions();
+
+            Network.SendCommand("load", message: "Config loaded", data: MyAPIGateway.Utilities.SerializeToBinary(Config));
         }
 
-        public void Activate_ClientCall(ulong steamId, string command, byte[] data)
+        public void Load_ClientCallback(ulong steamId, string command, byte[] data, DateTime timestamp)
         {
-            ActivateData activateData = MyAPIGateway.Utilities.SerializeFromBinary<ActivateData>(data);
+            Config = MyAPIGateway.Utilities.SerializeFromBinary<Settings>(data);
+            ResourceBaseNode.InitializeActions();
+        }
 
-            Activate(activateData.BlockId, activateData.ActionId);
+        public void GPS_ClientCallback(ulong steamId, string command, byte[] data, DateTime timestamp)
+        {
+            GPSSignal signal = MyAPIGateway.Utilities.SerializeFromBinary<GPSSignal>(data);
+            UpdateGPSSignal(signal);
         }
     }
 }

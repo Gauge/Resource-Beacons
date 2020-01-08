@@ -7,22 +7,22 @@ namespace ResourceBaseBlock.Data
     [ProtoContract]
     public class Resource
     {
-        [ProtoMember]
+        [ProtoMember(1)]
         public string TypeId { get; set; }
 
-        [ProtoMember]
+        [ProtoMember(2)]
         public string SubtypeName { get; set; }
 
-        [ProtoMember]
+        [ProtoMember(3)]
         public List<string> AlternateNames { get; set; } = new List<string>();
 
-        [ProtoMember]
+        [ProtoMember(4)]
         public int Amount { get; set; }
 
-        [ProtoMember]
+        [ProtoMember(5)]
         public int SpawnTime { get; set; }
 
-        [ProtoMember]
+        [ProtoMember(6)]
         public int Cooldown { get; set; }
 
         public string PrimaryName => ((AlternateNames.Count > 0) ? AlternateNames[0] : $"{SubtypeName} {TypeId}");
@@ -36,8 +36,7 @@ namespace ResourceBaseBlock.Data
         {
             MyObjectBuilder_PhysicalObject ObjectBuilder = new MyObjectBuilder_PhysicalObject();
 
-            switch (
-TypeId)
+            switch (TypeId)
             {
                 case "Ore":
                     ObjectBuilder = new MyObjectBuilder_Ore() { SubtypeName = SubtypeName };
