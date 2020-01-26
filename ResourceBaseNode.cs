@@ -52,13 +52,19 @@ namespace ResourceBaseBlock
 
         public override void Close()
         {
-            Network.SendCommand("gps", data: MyAPIGateway.Utilities.SerializeToBinary(new GPSSignal()
+            try
             {
-                Id = Entity.EntityId,
-                Remove = true
-            }));
+                Network.SendCommand("gps", data: MyAPIGateway.Utilities.SerializeToBinary(new GPSSignal() {
+                    Id = Entity.EntityId,
+                    Remove = true
+                }));
 
-            Core.UnRegisterResourceBaseNode(this);
+                Core.UnRegisterResourceBaseNode(this);
+            }
+            catch 
+            { 
+            
+            }
         }
 
         private void OnFetchRequest(ulong sender)
@@ -115,6 +121,7 @@ namespace ResourceBaseBlock
 
                 IMyTerminalAction action = MyAPIGateway.TerminalControls.CreateAction<IMyCargoContainer>(actionName);
                 action.Name.Append(actionName);
+                action.Icon = @"D:\Steam\steamapps\common\SpaceEngineers\Content\Textures\GUI\Icons\AstronautBackpack.dds";
                 action.Writer = (block, str) => str.Append($"{r.PrimaryName}");
                 action.Enabled = (block) => { return block.GameLogic.GetAs<ResourceBaseNode>() != null; };
                 action.Action = (block) =>
@@ -182,69 +189,76 @@ namespace ResourceBaseBlock
 
             string message = $"Spawning {ActiveResource.SubtypeName} {ActiveResource.Amount} {((multiplier > 1f) ? $"({multiplier.ToString("p0")})" : "")} {ActiveResource.TypeId} at \"{Name}\" in {GetTimeRemainingFormatted()}";
 
-            Core.Network.SendCommand("messages", message);
+            Core.Network.SendCommand("message", message, MyAPIGateway.Utilities.SerializeToBinary(message));
             MyAPIGateway.Utilities.SendModMessage(Tools.ModMessageId, message);
             Tools.Log(MyLogSeverity.Info, message);
         }
 
         public void UpdateDisplay()
         {
-            TimeRemaining -= Core.Config.UpdateInterval;
-
-            if (TimeRemaining <= 0)
+            try
             {
-                StringBuilder message = new StringBuilder();
-                TimeRemaining = 0;
-                if (State == BaseState.Spawn)
+                TimeRemaining -= Core.Config.UpdateInterval;
+
+                if (TimeRemaining <= 0)
                 {
-                    State = BaseState.Cooldown;
-                    TimeRemaining = Resource.ConvertSecondsToTicks(ActiveResource.Cooldown);
-
-                    message.Append(SpawnResources(ActiveResource));
-                    message.Append($"\n\"{Name}\" is on cooldown for {GetTimeRemainingFormatted()}");
-                }
-                else if (State == BaseState.Cooldown)
-                {
-                    State = BaseState.Ready;
-                    message.Append($"\"{Name}\" is Ready");
-                }
-
-                if (!string.IsNullOrWhiteSpace(message.ToString()) && MyAPIGateway.Session.IsServer)
-                {
-                    Core.Network.SendCommand("messages", message.ToString());
-                    Tools.Log(MyLogSeverity.Info, message.ToString());
-                }
-            }
-
-            if (MyAPIGateway.Session.IsServer)
-            {
-                string displayText = string.Format("{0} | {1} {2} {3}",
-                        ModBlock.CustomName.Split(new string[] { " | " }, StringSplitOptions.RemoveEmptyEntries)[0],
-                        State,
-                        (State == BaseState.Spawn ? $"{ActiveResource.PrimaryName} in" : ""),
-                        (State != BaseState.Ready ? GetTimeRemainingFormatted() : ""));
-
-                if (ModBlock.CustomName != displayText)
-                {
-                    ModBlock.CustomName = displayText;
-
-                    GPSSignal sig = new GPSSignal()
+                    StringBuilder message = new StringBuilder();
+                    TimeRemaining = 0;
+                    if (State == BaseState.Spawn)
                     {
-                        Id = Entity.EntityId,
-                        Text = displayText,
-                        Location = new SerializableVector3D(Entity.PositionComp.WorldAABB.Center)
-                    };
+                        State = BaseState.Cooldown;
+                        TimeRemaining = Resource.ConvertSecondsToTicks(ActiveResource.Cooldown);
 
-                    Network.SendCommand("gps", data: MyAPIGateway.Utilities.SerializeToBinary(sig));
-
-                    if (!MyAPIGateway.Utilities.IsDedicated)
+                        message.Append(SpawnResources(ActiveResource));
+                        message.Append($"\n\"{Name}\" is on cooldown for {GetTimeRemainingFormatted()}");
+                    }
+                    else if (State == BaseState.Cooldown)
                     {
-                        Core.UpdateGPSSignal(sig);
+                        State = BaseState.Ready;
+                        message.Append($"\"{Name}\" is Ready");
+                    }
+
+                    if (!string.IsNullOrWhiteSpace(message.ToString()) && MyAPIGateway.Session.IsServer)
+                    {
+                        Core.Network.SendCommand("message", message.ToString());
+                        MyAPIGateway.Utilities.SendModMessage(Tools.ModMessageId, message);
+                        Tools.Log(MyLogSeverity.Info, message.ToString());
                     }
                 }
-            }
 
-            Save();
+                if (MyAPIGateway.Session.IsServer)
+                {
+                    string displayText = string.Format("{0} | {1} {2} {3}",
+                            ModBlock.CustomName.Split(new string[] { " | " }, StringSplitOptions.RemoveEmptyEntries)[0],
+                            State,
+                            (State == BaseState.Spawn ? $"{ActiveResource.PrimaryName} in" : ""),
+                            (State != BaseState.Ready ? GetTimeRemainingFormatted() : ""));
+
+                    if (ModBlock.CustomName != displayText)
+                    {
+                        ModBlock.CustomName = displayText;
+
+                        GPSSignal sig = new GPSSignal() {
+                            Id = Entity.EntityId,
+                            Text = displayText,
+                            Location = new SerializableVector3D(Entity.PositionComp.WorldAABB.Center)
+                        };
+
+                        Network.SendCommand("gps", data: MyAPIGateway.Utilities.SerializeToBinary(sig));
+
+                        if (!MyAPIGateway.Utilities.IsDedicated)
+                        {
+                            Core.UpdateGPSSignal(sig);
+                        }
+                    }
+                }
+
+                Save();
+            }
+            catch (Exception e)
+            {
+                MyLog.Default.Error(e.ToString());
+            }
         }
 
         private string SpawnResources(Resource resource)
