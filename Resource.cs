@@ -53,6 +53,10 @@ namespace ResourceBaseBlock.Data
                 case "AmmoMagazine":
                     ObjectBuilder = new MyObjectBuilder_AmmoMagazine() { SubtypeName = SubtypeName };
                     break;
+
+                case "PhysicalObject":
+                    ObjectBuilder = new MyObjectBuilder_PhysicalObject() { SubtypeName = SubtypeName };
+                    break;
             }
 
             return ObjectBuilder;

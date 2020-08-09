@@ -1,7 +1,9 @@
 ﻿using Sandbox.ModAPI;
 using System;
 using System.Collections.Generic;
+using VRage;
 using VRage.Utils;
+using VRageMath;
 
 namespace SENetworkAPI
 {
@@ -10,8 +12,9 @@ namespace SENetworkAPI
 	public abstract class NetworkAPI
 	{
 		public static NetworkAPI Instance = null;
-		public static bool IsInitialized = Instance != null;
+		public static bool IsInitialized => Instance != null;
 		public static bool LogNetworkTraffic = false;
+		public const int CompressionThreshold = 100000;
 
 		/// <summary>
 		/// Event triggers apon reciveing data over the network
@@ -94,29 +97,44 @@ namespace SENetworkAPI
 
 				if (LogNetworkTraffic)
 				{
-					MyLog.Default.Info($"[NetworkAPI] Received Transmission: From: {cmd.SteamId} Type: {((cmd.IsProperty) ? "Property" : $"Command ID: {cmd.CommandString}")}");
+					MyLog.Default.Info($"[NetworkAPI] Received{(cmd.IsCompressed ? " Compressed" : "")} Transmission: From: {cmd.SteamId} Type: {((cmd.IsProperty) ? "Property" : $"Command ID: {cmd.CommandString}")}");
+				}
+
+				if (cmd.IsCompressed)
+				{
+					cmd.Data = MyCompression.Decompress(cmd.Data);
+					cmd.IsCompressed = false;
 				}
 
 				if (cmd.IsProperty)
 				{
-					NetSync<object>.RouteMessage(MyAPIGateway.Utilities.SerializeFromBinary<SyncData>(cmd.Data), cmd.SteamId);
+					NetSync<object>.RouteMessage(MyAPIGateway.Utilities.SerializeFromBinary<SyncData>(cmd.Data), cmd.SteamId, cmd.Timestamp);
 				}
 				else
 				{
-					if (!string.IsNullOrWhiteSpace(cmd.Message) && !MyAPIGateway.Multiplayer.IsServer && MyAPIGateway.Session != null)
+					if (!string.IsNullOrWhiteSpace(cmd.Message))
 					{
-						MyAPIGateway.Utilities.ShowMessage(ModName, cmd.Message);
-					}
 
-					if (cmd != null)
-					{
-						OnCommandRecived?.Invoke(cmd.SteamId, cmd.CommandString, cmd.Data, new DateTime(cmd.Timestamp));
+						if (!MyAPIGateway.Utilities.IsDedicated)
+						{
+							if (MyAPIGateway.Session != null)
+							{
+								MyAPIGateway.Utilities.ShowMessage(ModName, cmd.Message);
+							}
+						}
+
+						if (MyAPIGateway.Multiplayer.IsServer)
+						{
+							SendCommand(null, cmd.Message);
+						}
 					}
 
 					if (cmd.CommandString == null)
 					{
-						cmd.CommandString = string.Empty;
+						return;
 					}
+
+					OnCommandRecived?.Invoke(cmd.SteamId, cmd.CommandString, cmd.Data, new DateTime(cmd.Timestamp));
 
 					string command = cmd.CommandString.Split(' ')[0];
 
@@ -141,7 +159,7 @@ namespace SENetworkAPI
 		{
 			if (command == null)
 			{
-				command = string.Empty;
+				throw new Exception($"[NetworkAPI] Cannot register a command using null. null is reserved for chat messages.");
 			}
 
 			command = command.ToLower();
@@ -208,13 +226,46 @@ namespace SENetworkAPI
 		/// <param name="data">A serialized object used to send game information</param>
 		/// <param name="sent">The date timestamp this command was sent</param>
 		/// <param name="steamId">A players steam id</param>
+		/// <param name="isReliable">Makes sure the data gets to the target</param>
 		public abstract void SendCommand(string commandString, string message = null, byte[] data = null, DateTime? sent = null, ulong steamId = ulong.MinValue, bool isReliable = true);
 
 		/// <summary>
-		/// Sends a command packet to the server
+		/// Sends a command packet across the network
 		/// </summary>
-		/// <param name="cmd">The object to be sent to the client</param>
+		/// <param name="commandString">The command word and any arguments delimidated with spaces</param>
+		/// <param name="point"></param>
+		/// <param name="radius"></param>
+		/// <param name="message">Text to be writen in chat</param>
+		/// <param name="data">A serialized object used to send game information</param>
+		/// <param name="sent">The date timestamp this command was sent</param>
+		/// <param name="steamId">A players steam id</param>
+		/// <param name="isReliable">Makes sure the data gets to the target</param>
+		public abstract void SendCommand(string commandString, Vector3D point, double radius = 0, string message = null, byte[] data = null, DateTime? sent = null, ulong steamId = ulong.MinValue, bool isReliable = true);
+
+		/// <summary>
+		/// Sends a command packet to the server / client
+		/// </summary>
+		/// <param name="cmd">The object to be sent across the network</param>
+		/// <param name="steamId">the id of the user this is being sent to. 0 sends it to all users in range</param>
+		/// <param name="isReliable">make sure the packet reaches its destination</param>
 		internal abstract void SendCommand(Command cmd, ulong steamId = ulong.MinValue, bool isReliable = true);
+
+
+		/// <summary>
+		/// Sends a command packet to the server / client if in range
+		/// </summary>
+		/// <param name="cmd">The object to be sent across the network</param>
+		/// <param name="point">the center of the sending sphere</param>
+		/// <param name="range">the radius of the sending sphere</param>
+		/// <param name="steamId">the id of the user this is being sent to. 0 sends it to all users in range</param>
+		/// <param name="isReliable">make sure the packet reaches its destination</param>
+		internal abstract void SendCommand(Command cmd, Vector3D point, double range = 0, ulong steamId = ulong.MinValue, bool isReliable = true);
+
+		/// <summary>
+		/// Posts text into the ingame chat.
+		/// </summary>
+		/// <param name="message"></param>
+		public abstract void Say(string message);
 
 		/// <summary>
 		/// Unregisters listeners
@@ -263,23 +314,24 @@ namespace SENetworkAPI
 		}
 
 		/// <summary>
-		/// Gets the diffrence between now and a given date in milliseconds
+		/// Gets the diffrence between now and a given timestamp in milliseconds
 		/// </summary>
-		/// <param name="date"></param>
 		/// <returns></returns>
-		public static double GetDeltaMilliseconds(DateTime date)
+		public static float GetDeltaMilliseconds(long timestamp)
 		{
-			return ((double)(DateTime.UtcNow.Ticks - date.Ticks)) / 10000d;
+			return (DateTime.UtcNow.Ticks - timestamp) / TimeSpan.TicksPerMillisecond;
 		}
 
 		/// <summary>
-		/// Gets the diffrence between now and a given date in frames (60 fps)
+		/// Gets the diffrence between now and a given timestamp in frames (60 fps)
 		/// </summary>
 		/// <param name="date"></param>
 		/// <returns></returns>
-		public static int GetDeltaFrames(DateTime date)
+
+		private static double frames = 1000d / 60d;
+		public static int GetDeltaFrames(long timestamp)
 		{
-			return (int)Math.Ceiling(((double)(DateTime.UtcNow.Ticks - date.Ticks)) * 60 / 10000000d);
+			return (int)Math.Ceiling(GetDeltaMilliseconds(timestamp) / frames);
 		}
 	}
 }

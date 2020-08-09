@@ -13,10 +13,9 @@ using Sandbox.Game;
 namespace ResourceBaseBlock
 {
     [MySessionComponentDescriptor(MyUpdateOrder.AfterSimulation)]
-    public class Core : MySessionComponentBase
+    public class Core : MyNetworkSessionComponent
     {
         public static Settings Config { get; private set; }
-        public static NetworkAPI Network => NetworkAPI.Instance;
 
         private static Dictionary<long, ResourceBaseNode> RegisteredBaseNodes = new Dictionary<long, ResourceBaseNode>();
 
@@ -39,10 +38,15 @@ namespace ResourceBaseBlock
                 Config = Settings.Load();
                 ResourceBaseNode.InitializeActions();
 
+                Network.RegisterChatCommand("load", (text) => {
+                    Config = Settings.Load();
+                    ResourceBaseNode.InitializeActions();
+                    MyAPIGateway.Utilities.ShowMessage(Tools.Keyword, "config loaded");
+                });
+
                 Network.RegisterNetworkCommand("status", Status_ServerCallback);
                 Network.RegisterNetworkCommand("load", Load_ServerCallback);
                 Network.RegisterNetworkCommand("load_request", LoadRequest_ServerCallback);
-                Network.RegisterNetworkCommand("message", Message_ServerCallback);
                 Network.RegisterChatCommand("status", (text) =>
                 {
                     MyAPIGateway.Utilities.ShowMissionScreen("Resource Bases", "", "", BasicStatus());
@@ -53,7 +57,6 @@ namespace ResourceBaseBlock
                 Network.RegisterChatCommand("status", (text) => { Network.SendCommand("status"); });
                 Network.RegisterChatCommand("load", (text) => { Network.SendCommand("load"); });
 
-                Network.RegisterNetworkCommand("message", Message_ClientCallback);
                 Network.RegisterNetworkCommand("status", Status_ClientCallback);
                 Network.RegisterNetworkCommand("load", Load_ClientCallback);
                 Network.RegisterNetworkCommand("gps", GPS_ClientCallback);
@@ -158,12 +161,8 @@ namespace ResourceBaseBlock
         {
             string message = MyAPIGateway.Utilities.SerializeFromBinary<string>(data);
             MyAPIGateway.Utilities.SendModMessage(Tools.ModMessageId, message);
-            Network.SendCommand("message", message);
-        }
 
-        public void Message_ClientCallback(ulong steamId, string command, byte[] data, DateTime timestamp) 
-        { 
-            
+            Network.Say(message);
         }
 
         public void Status_ServerCallback(ulong steamId, string command, byte[] data, DateTime timestamp)

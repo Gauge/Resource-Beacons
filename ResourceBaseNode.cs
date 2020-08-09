@@ -20,7 +20,7 @@ namespace ResourceBaseBlock
     public enum BaseState { Ready, Spawn, Cooldown }
 
     [MyEntityComponentDescriptor(typeof(MyObjectBuilder_CargoContainer), true, "ResourceBaseNode")]
-    public class ResourceBaseNode : MyNetworkAPIGameLogicComponent
+    public class ResourceBaseNode : MyNetworkGameLogicComponent
     {
         public readonly static Guid StorageGuid = new Guid("B7AF750E-68E3-4826-BD0E-A75BF36BA5E6");
         public IMyCargoContainer ModBlock { get; private set; }
@@ -44,7 +44,7 @@ namespace ResourceBaseBlock
 
             Updater = new NetSync<ResourceBaseUpdate>(this, TransferType.Both, new ResourceBaseUpdate());
             Updater.ValueChangedByNetwork += OnValueChangedByNetwork;
-            Updater.FetchRequest += OnFetchRequest;
+            Updater.BeforeFetchRequestResponse += OnFetchRequest;
 
             NeedsUpdate |= MyEntityUpdateEnum.BEFORE_NEXT_FRAME;
             NeedsUpdate |= MyEntityUpdateEnum.EACH_FRAME;
@@ -121,7 +121,7 @@ namespace ResourceBaseBlock
 
                 IMyTerminalAction action = MyAPIGateway.TerminalControls.CreateAction<IMyCargoContainer>(actionName);
                 action.Name.Append(actionName);
-                action.Icon = @"D:\Steam\steamapps\common\SpaceEngineers\Content\Textures\GUI\Icons\AstronautBackpack.dds";
+                action.Icon = @".\Textures\GUI\Icons\AstronautBackpack.dds";
                 action.Writer = (block, str) => str.Append($"{r.PrimaryName}");
                 action.Enabled = (block) => { return block.GameLogic.GetAs<ResourceBaseNode>() != null; };
                 action.Action = (block) =>
@@ -189,7 +189,7 @@ namespace ResourceBaseBlock
 
             string message = $"Spawning {ActiveResource.SubtypeName} {ActiveResource.Amount} {((multiplier > 1f) ? $"({multiplier.ToString("p0")})" : "")} {ActiveResource.TypeId} at \"{Name}\" in {GetTimeRemainingFormatted()}";
 
-            Core.Network.SendCommand("message", message, MyAPIGateway.Utilities.SerializeToBinary(message));
+            Network.SendCommand("message", message, MyAPIGateway.Utilities.SerializeToBinary(message));
             MyAPIGateway.Utilities.SendModMessage(Tools.ModMessageId, message);
             Tools.Log(MyLogSeverity.Info, message);
         }
@@ -220,7 +220,7 @@ namespace ResourceBaseBlock
 
                     if (!string.IsNullOrWhiteSpace(message.ToString()) && MyAPIGateway.Session.IsServer)
                     {
-                        Core.Network.SendCommand("message", message.ToString());
+                        Network.Say(message.ToString());
                         MyAPIGateway.Utilities.SendModMessage(Tools.ModMessageId, message);
                         Tools.Log(MyLogSeverity.Info, message.ToString());
                     }
