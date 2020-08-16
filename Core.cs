@@ -36,7 +36,6 @@ namespace ResourceBaseBlock
             if (MyAPIGateway.Session.IsServer)
             {
                 Config = Settings.Load();
-                ResourceBaseNode.InitializeActions();
 
                 Network.RegisterChatCommand("load", (text) => {
                     Config = Settings.Load();
