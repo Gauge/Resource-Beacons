@@ -13,13 +13,15 @@ using Sandbox.Game;
 namespace ResourceBaseBlock
 {
     [MySessionComponentDescriptor(MyUpdateOrder.AfterSimulation)]
-    public class Core : MyNetworkSessionComponent
+    public class Core : MySessionComponentBase
     {
         public static Settings Config { get; private set; }
 
         private static Dictionary<long, ResourceBaseNode> RegisteredBaseNodes = new Dictionary<long, ResourceBaseNode>();
 
         private static Dictionary<long, IMyGps> gpsPoints = new Dictionary<long, IMyGps>();
+
+        private static NetworkAPI Network => NetworkAPI.Instance;
 
         public override void Init(MyObjectBuilder_SessionComponent sessionComponent)
         {

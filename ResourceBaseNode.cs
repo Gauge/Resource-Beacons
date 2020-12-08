@@ -21,8 +21,11 @@ namespace ResourceBaseBlock
 	public enum BaseState { Ready, Spawn, Cooldown }
 
 	[MyEntityComponentDescriptor(typeof(MyObjectBuilder_CargoContainer), true, "ResourceBaseNode")]
-	public class ResourceBaseNode : MyNetworkGameLogicComponent
+	
+	public class ResourceBaseNode : MyGameLogicComponent
 	{
+		private static NetworkAPI Network => NetworkAPI.Instance;
+
 		public readonly static Guid StorageGuid = new Guid("B7AF750E-68E3-4826-BD0E-A75BF36BA5E6");
 		public IMyCargoContainer ModBlock { get; private set; }
 		public string Name => ModBlock.CustomName.Split(new string[] { " | " }, StringSplitOptions.RemoveEmptyEntries)[0];
